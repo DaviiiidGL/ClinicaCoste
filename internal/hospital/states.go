@@ -47,14 +47,14 @@ func (n NarcolepsyLevel) String() string {
 type RoomState int
 
 const (
-	RoomStateEmpty RoomState = iota
+	RoomStateAvailable RoomState = iota
 	RoomStateOccupied
 	RoomStateAlerting
 )
 
 func (r RoomState) String() string {
 	switch r {
-	case RoomStateEmpty:
+	case RoomStateAvailable:
 		return "Empty"
 	case RoomStateOccupied:
 		return "Occupied"

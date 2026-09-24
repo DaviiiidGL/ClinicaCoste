@@ -26,7 +26,7 @@ func TestStates_String(t *testing.T) {
 		{name: "NarcolepsyLevel Unknown", input: hospital.NarcolepsyLevel(99), expected: "Unknown NarcolepsyLevel(99)"},
 
 		// RoomState
-		{name: "RoomState Empty", input: hospital.RoomStateEmpty, expected: "Empty"},
+		{name: "RoomState Empty", input: hospital.RoomStateAvailable, expected: "Empty"},
 		{name: "RoomState Occupied", input: hospital.RoomStateOccupied, expected: "Occupied"},
 		{name: "RoomState Alerting", input: hospital.RoomStateAlerting, expected: "Alerting"},
 		{name: "RoomState Unknown", input: hospital.RoomState(99), expected: "Unknown RoomState(99)"},
