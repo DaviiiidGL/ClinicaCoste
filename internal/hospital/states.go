@@ -1,7 +1,5 @@
 package hospital
 
-import "fmt"
-
 type PatientState int
 
 const (
@@ -19,7 +17,7 @@ func (s PatientState) String() string {
 	case PatientStateAsleep:
 		return "Asleep"
 	default:
-		return fmt.Sprintf("Unknown PatientState(%d)", s)
+		return "Unknown"
 	}
 }
 
@@ -40,27 +38,27 @@ func (n NarcolepsyLevel) String() string {
 	case NarcolepsyLevelSevere:
 		return "Severe"
 	default:
-		return fmt.Sprintf("Unknown NarcolepsyLevel(%d)", n)
+		return "Unknown"
 	}
 }
 
 type RoomState int
 
 const (
-	RoomStateEmpty RoomState = iota
+	RoomStateAvailable RoomState = iota
 	RoomStateOccupied
 	RoomStateAlerting
 )
 
 func (r RoomState) String() string {
 	switch r {
-	case RoomStateEmpty:
-		return "Empty"
+	case RoomStateAvailable:
+		return "Available"
 	case RoomStateOccupied:
 		return "Occupied"
 	case RoomStateAlerting:
 		return "Alerting"
 	default:
-		return fmt.Sprintf("Unknown RoomState(%d)", r)
+		return "Unknown"
 	}
 }
