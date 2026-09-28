@@ -8,8 +8,8 @@ type Person struct {
 	age  int
 }
 
-func NewPerson(name string, age int) *Person {
-	return &Person{
+func NewPerson(name string, age int) Person {
+	return Person{
 		id:   uuid.New().String(),
 		name: name,
 		age:  age,
@@ -32,4 +32,11 @@ func (p *Person) SetAge(age int) {
 	if age > p.age {
 		p.age = age
 	}
+}
+
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }

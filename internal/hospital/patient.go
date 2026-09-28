@@ -8,17 +8,14 @@ type Patient struct {
 	state           PatientState
 	currentLocation string
 	assignedRoom    *Room
-	assignedDoctor  interface{}
+	assignedDoctor  Attender
 }
 
-func newPatient(name string, age int, level NarcolepsyLevel) *Patient {
+func NewPatient(name string, age int, level NarcolepsyLevel) *Patient {
 	return &Patient{
-		Person:          *NewPerson(name, age),
-		level:           level,
-		state:           PatientStateAwake,
-		currentLocation: "",
-		assignedRoom:    nil,
-		assignedDoctor:  nil,
+		Person: NewPerson(name, age),
+		level:  level,
+		state:  PatientStateAwake,
 	}
 }
 
@@ -42,28 +39,35 @@ func (p *Patient) AssignedDoctor() interface{} {
 	return p.assignedDoctor
 }
 
+func (p *Patient) IsAsleepInHallway() bool {
+	return p.state == PatientStateAsleep && p.assignedRoom == nil
+}
+
+func (p *Patient) IsAsleepInBed() bool {
+	return p.state == PatientStateAsleep && p.assignedRoom != nil
+}
+
 // Priority: 2>1>0 where 2 is maximum urgency
-func (p *Patient) Priority() (int, int) {
-	var state int
-	if p.state == PatientStateAsleep && p.assignedRoom == nil {
-		state = 2
-	} else if p.state == PatientStateDrowsy {
-		state = 1
-	} else {
-		state = 0
+func (p *Patient) Priority() (urgency, severity int) {
+	switch {
+	case p.IsAsleepInHallway():
+		urgency = 2
+	case p.state == PatientStateDrowsy:
+		urgency = 1
+	default:
+		urgency = 0
 	}
-	return state, int(p.level)
+	return urgency, int(p.level)
 }
 
 // Comparing
 func (p *Patient) HasHigherPriority(other *Patient) bool {
-	s1, l1 := p.Priority()
-	s2, l2 := other.Priority()
-
-	if s1 != s2 {
-		return s1 > s2
+	u1, s1 := p.Priority()
+	u2, s2 := other.Priority()
+	if u1 != u2 {
+		return u1 > u2
 	}
-	return l1 > l2
+	return s1 > s2
 }
 
 // Patient asleep at location
@@ -83,37 +87,22 @@ func (p *Patient) SufferSleepAttack(location string) error {
 // Wake up Patient
 func (p *Patient) WakeUp() error {
 	if p.state == PatientStateAwake {
-		return fmt.Errorf("patient %s %w", p.ID(), ErrPatientAlreadyAwake)
+		return fmt.Errorf("patient %s: %w", p.ID(), ErrPatientAlreadyAwake)
 	}
-
 	p.state = PatientStateAwake
 	p.currentLocation = ""
-
 	return nil
 }
 
-func (p *Patient) SetAssignedRoom(room *Room) {
-	p.assignedRoom = room
-	if room != nil && p.state == PatientStateAsleep {
-		//TODO: Update state of room
-	}
-}
-
-func (p *Patient) ClearAssignedRoom() {
-	p.assignedRoom = nil
-}
-
-func (p *Patient) SetAssignedDoctor(d interface{}) {
-	p.assignedDoctor = d
-}
+func (p *Patient) setAssignedRoom(r *Room)      { p.assignedRoom = r }
+func (p *Patient) clearAssignedRoom()           { p.assignedRoom = nil }
+func (p *Patient) setAssignedDoctor(a Attender) { p.assignedDoctor = a }
 
 func (p *Patient) String() string {
 	room := "none"
 	if p.assignedRoom != nil {
-		room = fmt.Sprintf("%v", p.assignedRoom)
+		room = fmt.Sprintf("%d", p.assignedRoom.Number())
 	}
-
-	return fmt.Sprintf("P-%s | %s (age %d, %s, %s) | State: %s | Location: %s | Room: %s",
-		p.ID()[:8], p.Name(), p.Age(), p.Level(), p.Level(),
-		p.State(), p.Location(), room)
+	return fmt.Sprintf("P-%s | %s (age %d, %s) | %s | location: %q | room: %s",
+		shortID(p.ID()), p.Name(), p.Age(), p.level, p.state, p.currentLocation, room)
 }
