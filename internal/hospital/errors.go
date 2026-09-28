@@ -7,6 +7,8 @@ var (
 	ErrPatientAlreadyAsleep   = errors.New("patient is already asleep")
 	ErrPatientAlreadyAwake    = errors.New("patient is already awake")
 	ErrNilPatient             = errors.New("patient cannot be nil")
+	ErrPatientNotAsleep       = errors.New("patient is not asleep")
+	ErrNoPatientWaiting       = errors.New("no patient waiting for a room")
 	ErrPatientNotFound        = errors.New("patient not found")
 	ErrPatientAlreadyAdmitted = errors.New("patient already admitted")
 )
@@ -20,12 +22,13 @@ var (
 
 // Room Errors
 var (
-	ErrRoomFull             = errors.New("room is full")
-	ErrRoomNotFound         = errors.New("room not found")
-	ErrPatientNotInRoom     = errors.New("patient is not in room")
-	ErrPatientAlreadyInRoom = errors.New("patient is already in a room")
-	ErrInvalidCapacity      = errors.New("room capacity must be at least 1")
-	ErrNoRoomAvailable      = errors.New("no room available")
+	ErrRoomFull              = errors.New("room is full")
+	ErrRoomNotFound          = errors.New("room not found")
+	ErrPatientNotInRoom      = errors.New("patient is not in room")
+	ErrPatientAlreadyInRoom  = errors.New("patient is already in a room")
+	ErrRoomAlreadyRegistered = errors.New("room number already registered")
+	ErrInvalidCapacity       = errors.New("room capacity must be at least 1")
+	ErrNoRoomAvailable       = errors.New("no room available")
 )
 
 // Attender Errors
