@@ -298,11 +298,20 @@ func TestAssignNextWaiting_NobodyWaiting(t *testing.T) {
 
 // --- Historial ---
 
+// TestRegisterEpisode prueba RegisterEpisode de forma aislada: duerme al
+// paciente a mano (sin pasar por ReportSleepAttack, que ya registra su propio
+// episodio) para no mezclar los dos episodios en el mismo History().
 func TestRegisterEpisode(t *testing.T) {
 	h := newTestHospital(t, 1)
 	p := admit(t, h, "A", NarcolepsyLevelMild)
 	by := fakeAttender{"S-1", "Dr. Karen"}
-	room, _ := h.ReportSleepAttack(p, "cafeteria")
+	if err := p.SufferSleepAttack("cafeteria"); err != nil {
+		t.Fatalf("SufferSleepAttack: %v", err)
+	}
+	room, err := h.AssignRoom(p)
+	if err != nil {
+		t.Fatalf("AssignRoom: %v", err)
+	}
 
 	e := NewEpisodeRecord(p, by, "cafeteria", room)
 	if err := h.RegisterEpisode(e); err != nil {
@@ -361,5 +370,121 @@ func TestDemoScenarioFlow(t *testing.T) {
 	}
 	if len(h.PatientsInHallway()) != 0 {
 		t.Error("hallway should be empty")
+	}
+}
+
+// --- Staff / dispatch (Fase 3) ---
+
+func TestReportSleepAttack_RegistersAnEpisodeEvenWithoutStaff(t *testing.T) {
+	h := newTestHospital(t, 1)
+	p := admit(t, h, "A", NarcolepsyLevelMild)
+
+	room, err := h.ReportSleepAttack(p, "cafeteria")
+	if err != nil {
+		t.Fatalf("ReportSleepAttack: %v", err)
+	}
+	hist := h.History()
+	if len(hist) != 1 {
+		t.Fatalf("want 1 episode, got %d", len(hist))
+	}
+	if hist[0].AttendingDoctor() != nil {
+		t.Error("with no staff hired, the episode must have no attender")
+	}
+	if hist[0].AssignedRoom() != room {
+		t.Errorf("episode room = %v, want %v", hist[0].AssignedRoom(), room)
+	}
+}
+
+func TestReportSleepAttack_DispatchesAndRecordsTheAttender(t *testing.T) {
+	h := newTestHospital(t, 1)
+	d := NewDoctor("Karen Ospina", 38, "Neurology")
+	if err := h.HireDoctor(d); err != nil {
+		t.Fatalf("HireDoctor: %v", err)
+	}
+	p := admit(t, h, "Wilfrido", NarcolepsyLevelSevere)
+
+	room, err := h.ReportSleepAttack(p, "cafeteria")
+	if err != nil {
+		t.Fatalf("ReportSleepAttack: %v", err)
+	}
+
+	hist := h.History()
+	if len(hist) != 1 || hist[0].AttendingDoctor() == nil || hist[0].AttendingDoctor().ID() != d.ID() {
+		t.Fatalf("episode not attended by the doctor: %v", hist)
+	}
+	if hist[0].AssignedRoom() != room {
+		t.Errorf("episode room = %v, want %v", hist[0].AssignedRoom(), room)
+	}
+	if p.AssignedDoctor() == nil || p.AssignedDoctor().ID() != d.ID() {
+		t.Error("patient should know who is attending them")
+	}
+	if got := d.MyEpisodes(); len(got) != 1 || got[0].ID() != hist[0].ID() {
+		t.Errorf("doctor's own history should include this episode: %v", got)
+	}
+}
+
+func TestDispatch_RoundRobinsAcrossDifferentAttenderTypes(t *testing.T) {
+	h := newTestHospital(t, 1, 1, 1)
+	d := NewDoctor("Karen", 38, "Neurology")
+	o := NewOrderly("Camilo", 25)
+	n := NewNurse("Andrea", 30)
+	if err := h.HireDoctor(d); err != nil { // los doctores entran por HireDoctor...
+		t.Fatalf("HireDoctor: %v", err)
+	}
+	for _, a := range []Attender{o, n} { // ...el resto del staff, por AddAttender
+		if err := h.AddAttender(a); err != nil {
+			t.Fatalf("AddAttender: %v", err)
+		}
+	}
+
+	patients := []*Patient{
+		admit(t, h, "P1", NarcolepsyLevelMild),
+		admit(t, h, "P2", NarcolepsyLevelMild),
+		admit(t, h, "P3", NarcolepsyLevelMild),
+	}
+	var attenders []Attender
+	for _, p := range patients {
+		_, _ = h.ReportSleepAttack(p, "x")
+		attenders = append(attenders, p.AssignedDoctor())
+	}
+
+	seen := map[string]bool{}
+	for _, a := range attenders {
+		if a == nil {
+			t.Fatal("every patient should have been attended")
+		}
+		seen[a.ID()] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("round-robin should have used all 3 attenders, used %d", len(seen))
+	}
+}
+
+func TestAddAttender(t *testing.T) {
+	h := newTestHospital(t)
+	o := NewOrderly("Camilo", 25)
+
+	if err := h.AddAttender(nil); !errors.Is(err, ErrNilAttender) {
+		t.Errorf("nil: got %v", err)
+	}
+	if err := h.AddAttender(o); err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+	if err := h.AddAttender(o); !errors.Is(err, ErrAttenderAlreadyRegistered) {
+		t.Errorf("duplicate: got %v", err)
+	}
+	if len(h.Staff()) != 1 {
+		t.Errorf("want 1 attender, got %d", len(h.Staff()))
+	}
+}
+
+func TestHireDoctor_AlsoJoinsStaff(t *testing.T) {
+	h := newTestHospital(t)
+	d := NewDoctor("Karen", 38, "Neurology")
+	_ = h.HireDoctor(d)
+
+	staff := h.Staff()
+	if len(staff) != 1 || staff[0].ID() != d.ID() {
+		t.Errorf("doctor should be in Staff(): %v", staff)
 	}
 }

@@ -10,6 +10,8 @@ import (
 type Hospital struct {
 	name     string
 	doctors  []*Doctor
+	staff    []Attender
+	nextDisp int
 	patients []*Patient
 	byID     map[string]*Patient
 	rooms    []*Room
@@ -55,7 +57,32 @@ func (h *Hospital) HireDoctor(d *Doctor) error {
 		}
 	}
 	h.doctors = append(h.doctors, d)
+	h.staff = append(h.staff, d)
 	return nil
+}
+
+func (h *Hospital) AddAttender(a Attender) error {
+	if a == nil {
+		return ErrNilAttender
+	}
+	for _, existing := range h.staff {
+		if existing.ID() == a.ID() {
+			return fmt.Errorf("attender %s: %w", a.Name(), ErrAttenderAlreadyRegistered)
+		}
+	}
+	h.staff = append(h.staff, a)
+	return nil
+}
+
+func (h *Hospital) Staff() []Attender { return slices.Clone(h.staff) }
+
+func (h *Hospital) dispatch() (Attender, bool) {
+	if len(h.staff) == 0 {
+		return nil, false
+	}
+	a := h.staff[h.nextDisp%len(h.staff)]
+	h.nextDisp++
+	return a, true
 }
 
 func (h *Hospital) AddRoom(number, capacity int) (*Room, error) {
@@ -82,7 +109,25 @@ func (h *Hospital) ReportSleepAttack(p *Patient, location string) (*Room, error)
 	if err := p.SufferSleepAttack(location); err != nil {
 		return nil, err
 	}
-	return h.AssignRoom(p)
+	room, roomErr := h.AssignRoom(p)
+
+	if err := h.attendAndRegister(p, location); err != nil {
+		return room, err
+	}
+
+	return room, roomErr
+}
+
+func (h *Hospital) attendAndRegister(p *Patient, location string) error {
+	attender, ok := h.dispatch()
+	if !ok {
+		return h.RegisterEpisode(NewEpisodeRecord(p, nil, location, p.AssignedRoom()))
+	}
+	e, err := attender.Attend(p, location)
+	if err != nil {
+		return err
+	}
+	return h.RegisterEpisode(e)
 }
 
 func (h *Hospital) AssignRoom(p *Patient) (*Room, error) {

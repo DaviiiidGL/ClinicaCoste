@@ -35,7 +35,7 @@ func (p *Patient) AssignedRoom() *Room {
 	return p.assignedRoom
 }
 
-func (p *Patient) AssignedDoctor() interface{} {
+func (p *Patient) AssignedDoctor() Attender {
 	return p.assignedDoctor
 }
 

@@ -33,9 +33,10 @@ var (
 
 // Attender Errors
 var (
-	ErrNilAttender            = errors.New("attender cannot be nil")
-	ErrNoAttenderAvailable    = errors.New("no attender available")
-	ErrAttenderCannotDiagnose = errors.New("this attender cannot diagnose patients")
+	ErrNilAttender               = errors.New("attender cannot be nil")
+	ErrNoAttenderAvailable       = errors.New("no attender available")
+	ErrAttenderCannotDiagnose    = errors.New("this attender cannot diagnose patients")
+	ErrAttenderAlreadyRegistered = errors.New("attender already registered")
 )
 
 // Episode Record Errors

@@ -1,6 +1,9 @@
 package hospital
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestNewDoctor(t *testing.T) {
 	d := NewDoctor("Karen Ospina", 38, "Neurology")
@@ -33,7 +36,7 @@ func TestDoctorMyEpisodes_ReturnsOnlyOwnAndACopy(t *testing.T) {
 
 func TestDoctorPatients_ReturnsACopy(t *testing.T) {
 	d := NewDoctor("Karen", 38, "Neurology")
-	d.addPatient(NewPatient("a", 30, NarcolepsyLevelMild))
+	_ = d.DiagnosePatient(NewPatient("a", 30, NarcolepsyLevelMild))
 
 	list := d.Patients()
 	list[0] = nil
@@ -41,3 +44,65 @@ func TestDoctorPatients_ReturnsACopy(t *testing.T) {
 		t.Error("Patients must return a copy")
 	}
 }
+
+func TestDiagnosePatient(t *testing.T) {
+	d := NewDoctor("Karen", 38, "Neurology")
+
+	if err := d.DiagnosePatient(nil); !errors.Is(err, ErrNilPatient) {
+		t.Errorf("nil: got %v", err)
+	}
+
+	p := NewPatient("Wilfrido", 40, NarcolepsyLevelSevere)
+	if err := d.DiagnosePatient(p); err != nil {
+		t.Fatalf("DiagnosePatient: %v", err)
+	}
+	if p.AssignedDoctor() == nil || p.AssignedDoctor().ID() != d.ID() {
+		t.Error("patient should be assigned to this doctor")
+	}
+	if err := d.DiagnosePatient(p); err != nil { // idempotente
+		t.Fatalf("DiagnosePatient again: %v", err)
+	}
+	if len(d.Patients()) != 1 {
+		t.Errorf("patient must not be duplicated, got %d", len(d.Patients()))
+	}
+}
+
+func TestAttendSleepEmergency(t *testing.T) {
+	d := NewDoctor("Karen", 38, "Neurology")
+
+	if err := d.AttendSleepEmergency(nil); !errors.Is(err, ErrNilPatient) {
+		t.Errorf("nil: got %v", err)
+	}
+	awake := NewPatient("Awake", 30, NarcolepsyLevelMild)
+	if err := d.AttendSleepEmergency(awake); !errors.Is(err, ErrPatientNotAsleep) {
+		t.Errorf("awake patient: got %v", err)
+	}
+}
+
+func TestDoctorAttend_DiagnosesAndRecordsItsOwnEpisode(t *testing.T) {
+	d := NewDoctor("Karen", 38, "Neurology")
+	p := NewPatient("Wilfrido", 40, NarcolepsyLevelSevere)
+
+	if _, err := d.Attend(p, "cafeteria"); !errors.Is(err, ErrPatientNotAsleep) {
+		t.Fatalf("attending an awake patient: got %v", err)
+	}
+
+	_ = p.SufferSleepAttack("cafeteria")
+	e, err := d.Attend(p, "cafeteria")
+	if err != nil {
+		t.Fatalf("Attend: %v", err)
+	}
+	if e.AttendingDoctor().ID() != d.ID() || e.Location() != "cafeteria" {
+		t.Errorf("unexpected episode: %v", e)
+	}
+	if p.AssignedDoctor() == nil || p.AssignedDoctor().ID() != d.ID() {
+		t.Error("Attend must diagnose (assign) the patient too")
+	}
+	if got := d.MyEpisodes(); len(got) != 1 || got[0].ID() != e.ID() {
+		t.Errorf("MyEpisodes should include this episode: %v", got)
+	}
+}
+
+// Attend es la interfaz Attender: comprobación en tiempo de compilación de
+// que Doctor la satisface.
+var _ Attender = (*Doctor)(nil)
