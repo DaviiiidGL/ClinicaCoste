@@ -50,3 +50,8 @@ func (e EpisodeRecord) Summary() string {
 }
 
 func (e EpisodeRecord) String() string { return e.Summary() }
+
+func (e EpisodeRecord) withRoom(r *Room) EpisodeRecord {
+	e.assignedRoom = r
+	return e
+}
