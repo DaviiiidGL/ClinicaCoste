@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Hospital struct {
@@ -16,6 +17,8 @@ type Hospital struct {
 	byID     map[string]*Patient
 	rooms    []*Room
 	history  []EpisodeRecord
+
+	now func() time.Time
 
 	subMu     sync.Mutex
 	subs      map[int]chan EpisodeRecord
@@ -29,6 +32,7 @@ func NewHospital(name string) (*Hospital, error) {
 	return &Hospital{
 		name: name,
 		byID: make(map[string]*Patient),
+		now:  time.Now,
 		subs: make(map[int]chan EpisodeRecord),
 	}, nil
 }
