@@ -1,0 +1,35 @@
+{
+  "hospitalName": "La Clinica del Coste",
+  "rooms": [
+    { "number": 101, "capacity": 1 },
+    { "number": 102, "capacity": 1 },
+    { "number": 103, "capacity": 1 }
+  ],
+  "doctors": [
+    { "name": "Manuela Montoya", "age": 38, "specialty": "Neurología del sueño" },
+    { "name": "Álvaro Pumarejo", "age": 45, "specialty": "Medicina interna" }
+  ],
+  "orderlies": [
+    { "name": "Yoni Barranco", "age": 27 }
+  ],
+  "nurses": [],
+  "patients": [
+    { "name": "Yeimy Padilla", "age": 29, "level": "Severe" },
+    { "name": "Maritza Cantillo", "age": 52, "level": "Moderate" },
+    { "name": "Jhonatan Rodelo", "age": 19, "level": "Mild" },
+    { "name": "Wilfrido Berrío", "age": 41, "level": "Severe" },
+    { "name": "Dayana Polo", "age": 34, "level": "Mild" }
+  ],
+  "scenario": {
+    "attacks": [
+      { "patient": "Yeimy Padilla", "location": "cafetería de la torre norte" },
+      { "patient": "Maritza Cantillo", "location": "fila de radiología" },
+      { "patient": "Jhonatan Rodelo", "location": "farmacia, junto a la máquina de tinto" },
+      { "patient": "Wilfrido Berrío", "location": "pasillo 2, segundo piso" }
+    ],
+    "wakePatient": "Yeimy Padilla"
+  },
+  "storage": {
+    "historyPath": "data/history.json"
+  }
+}
