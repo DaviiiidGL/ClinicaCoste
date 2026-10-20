@@ -12,7 +12,7 @@ type Room struct {
 
 func NewRoom(number, capacity int) (*Room, error) {
 	if capacity < 1 {
-		return nil, fmt.Errorf("room %d: %w", number, ErrInvalidCapacity)
+		return nil, ErrInvalidCapacity
 	}
 	return &Room{
 		number:    number,
@@ -40,7 +40,6 @@ func (r *Room) IsAvailable() bool {
 	return len(r.occupants) < r.capacity
 }
 
-// Get a patient into the room
 func (r *Room) Occupy(p *Patient) error {
 	if p == nil {
 		return ErrNilPatient
@@ -56,7 +55,6 @@ func (r *Room) Occupy(p *Patient) error {
 	return nil
 }
 
-// Get a patient out of the room
 func (r *Room) Release(p *Patient) error {
 	if p == nil {
 		return ErrNilPatient

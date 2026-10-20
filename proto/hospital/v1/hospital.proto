@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package hospital.v1;
+
+option go_package = "ClinicaCoste/gen/go/proto/hospital/v1;hospitalv1";
+
+// Servicio unificado de la clínica para Connect RPC
+service HospitalService {
+  // --- Simulación y Gestión ---
+  rpc AdmitPatient(AdmitPatientRequest) returns (AdmitPatientResponse);
+  rpc ReportSleepAttack(ReportSleepAttackRequest) returns (ReportSleepAttackResponse);
+  rpc AssignRoom(AssignRoomRequest) returns (AssignRoomResponse);
+  rpc WakePatient(WakePatientRequest) returns (WakePatientResponse);
+
+  // --- Consultas de Estado y Vistas ---
+  rpc GetPatientsInHallway(Empty) returns (PatientsInHallwayResponse);
+  rpc GetFloorSnapshot(FloorSnapshotRequest) returns (FloorSnapshotResponse);
+  rpc GetHistory(Empty) returns (HistoryResponse);
+  rpc GetStaff(Empty) returns (StaffResponse);
+  rpc GetSeverityReport(Empty) returns (SeverityReportResponse);
+
+  // --- NUEVO: Listar todos los pacientes ---
+  rpc GetAllPatients(GetAllPatientsRequest) returns (GetAllPatientsResponse);
+  rpc GetDoctorStats(Empty) returns (DoctorStatsResponse);
+
+  // --- Streaming en Tiempo Real (Tablero en Vivo) ---
+  rpc StreamEpisodes(Empty) returns (stream EpisodeEventDto);
+
+  // Dentro del service HospitalService:
+  rpc GetRooms(Empty) returns (GetRoomsResponse);
+}
+
+// --- Mensajes Auxiliares Comunes ---
+message Empty {}
+
+// --- DTOs de Pacientes ---
+message PatientDto {
+  string id = 1;
+  string name = 2;
+  int32 age = 3;
+  string narcolepsy_level = 4;
+  string state = 5;
+  string location = 6;
+  int32 assigned_room = 7;
+  bool is_crisis = 8;
+}
+
+// --- NUEVO: Mensajes para GetAllPatients ---
+message GetAllPatientsRequest {}
+message GetAllPatientsResponse {
+  repeated PatientDto patients = 1;
+}
+
+// --- Request / Response de Acciones ---
+message AdmitPatientRequest {
+  string id = 1;
+  string name = 2;
+  int32 age = 3;
+  string narcolepsy_level = 4;
+}
+message AdmitPatientResponse {}
+
+message ReportSleepAttackRequest {
+  string patient_id = 1;
+  string location = 2;
+}
+message ReportSleepAttackResponse {
+  int32 assigned_room_number = 1;
+  bool room_assigned = 2;
+}
+
+message AssignRoomRequest {
+  string patient_id = 1;
+}
+message AssignRoomResponse {
+  int32 room_number = 1;
+}
+
+message WakePatientRequest {
+  string patient_id = 1;
+}
+message WakePatientResponse {}
+
+// --- Request / Response de Consultas ---
+message PatientsInHallwayResponse {
+  repeated PatientDto patients = 1;
+}
+
+message FloorSnapshotRequest {
+  int32 floor_number = 1;
+}
+message FloorSnapshotResponse {
+  int32 floor_number = 1;
+  repeated PatientDto patients = 2;
+}
+
+message EpisodeEventDto {
+  string id = 1;
+  string timestamp = 2;
+  string patient_id = 3;
+  string patient_name = 4;
+  string attending_doctor = 5;
+  string location = 6;
+  string assigned_room = 7;
+}
+
+message HistoryResponse {
+  repeated EpisodeEventDto episodes = 1;
+}
+
+message StaffMemberDto {
+  string id = 1;
+  string name = 2;
+  string role = 3;
+}
+
+message StaffResponse {
+  repeated StaffMemberDto staff = 1;
+}
+
+// Al final del archivo:
+message RoomDto {
+  int32 number = 1;
+  int32 capacity = 2;
+  string state = 3;
+}
+message GetRoomsResponse {
+  repeated RoomDto rooms = 1;
+}
+
+message SeverityReportEntry {
+  string patient_id = 1;
+  string patient_name = 2;
+  int32 episode_count = 3;
+}
+message SeverityReportResponse {
+  repeated SeverityReportEntry entries = 1;
+}
+
+message DoctorStatEntry {
+  string doctor_id = 1;
+  string doctor_name = 2;
+  string role = 3;
+  int32 episode_count = 4;
+}
+message DoctorStatsResponse {
+  repeated DoctorStatEntry entries = 1;
+}

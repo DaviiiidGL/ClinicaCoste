@@ -1,6 +1,7 @@
 package scenario
 
 import (
+	"ClinicaCoste/internal/hospital/clock"
 	"errors"
 	"fmt"
 
@@ -15,8 +16,13 @@ type Scenario struct {
 	patients map[string]*hospital.Patient
 }
 
+// Build construye el escenario permitiendo inyectar un reloj opcional o usando RealClock por defecto.
 func Build(cfg config.Config) (*Scenario, error) {
-	h, err := hospital.NewHospital(cfg.HospitalName)
+	return BuildWithClock(cfg, clock.RealClock{})
+}
+
+func BuildWithClock(cfg config.Config, clk clock.Clock) (*Scenario, error) {
+	h, err := hospital.NewHospital(cfg.HospitalName, clk)
 	if err != nil {
 		return nil, err
 	}

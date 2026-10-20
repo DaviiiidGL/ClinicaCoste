@@ -29,6 +29,7 @@ var (
 	ErrRoomAlreadyRegistered = errors.New("room number already registered")
 	ErrInvalidCapacity       = errors.New("room capacity must be at least 1")
 	ErrNoRoomAvailable       = errors.New("no room available")
+	ErrNilRoom               = errors.New("room cannot be nil")
 )
 
 // Attender Errors

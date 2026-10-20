@@ -1,31 +1,42 @@
 package hospital
 
-func (h *Hospital) Subscribe(buffer int) (events <-chan EpisodeRecord, cancel func()) {
-	if buffer < 1 {
-		buffer = 1 // un canal sin buffer descartaría todo
+import (
+	"sync"
+)
+
+func (h *Hospital) Subscribe(bufSize int) (<-chan EpisodeRecord, func()) {
+	if bufSize <= 0 {
+		bufSize = 1
 	}
-	ch := make(chan EpisodeRecord, buffer)
 
 	h.subMu.Lock()
+	defer h.subMu.Unlock()
+
 	id := h.nextSubID
 	h.nextSubID++
-	h.subs[id] = ch
-	h.subMu.Unlock()
 
-	cancel = func() {
-		h.subMu.Lock()
-		defer h.subMu.Unlock()
-		if c, ok := h.subs[id]; ok {
-			delete(h.subs, id)
-			close(c)
-		}
+	ch := make(chan EpisodeRecord, bufSize)
+	h.subs[id] = ch
+
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			h.subMu.Lock()
+			defer h.subMu.Unlock()
+			if c, ok := h.subs[id]; ok {
+				close(c)
+				delete(h.subs, id)
+			}
+		})
 	}
+
 	return ch, cancel
 }
 
 func (h *Hospital) publish(e EpisodeRecord) {
 	h.subMu.Lock()
 	defer h.subMu.Unlock()
+
 	for _, ch := range h.subs {
 		select {
 		case ch <- e:
