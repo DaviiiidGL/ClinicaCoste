@@ -1,0 +1,8 @@
+version: v1
+name: buf.build/clinicacoste/hospital
+breaking:
+  use:
+    - FILE
+lint:
+  use:
+    - DEFAULT

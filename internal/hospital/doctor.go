@@ -1,6 +1,9 @@
 package hospital
 
-import "fmt"
+import (
+	"ClinicaCoste/internal/hospital/clock"
+	"fmt"
+)
 
 type Doctor struct {
 	Person
@@ -13,7 +16,9 @@ type Doctor struct {
 
 func NewDoctor(name string, age int, speciality string) *Doctor {
 	return &Doctor{
-		Person: NewPerson(name, age), specialty: speciality,
+		Person:    NewPerson(name, age),
+		specialty: speciality,
+		shift:     NewShift(0, 24),
 	}
 }
 
@@ -62,8 +67,17 @@ func (d *Doctor) Attend(p *Patient, location string) (EpisodeRecord, error) {
 	if err := d.DiagnosePatient(p); err != nil {
 		return EpisodeRecord{}, err
 	}
+
 	e := NewEpisodeRecord(p, d, location, p.AssignedRoom())
 	d.recordEpisode(e)
 	return e, nil
 }
+
+func (d *Doctor) IsOnShift(clk clock.Clock) bool {
+	if clk == nil {
+		return true
+	}
+	return d.shift.IsActive(clk.Now())
+}
+
 func (d *Doctor) recordEpisode(e EpisodeRecord) { d.episodes = append(d.episodes, e) }

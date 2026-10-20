@@ -1,7 +1,5 @@
 package hospital
 
-import "fmt"
-
 type Nurse struct {
 	Person
 	stabilized []*Patient
@@ -24,7 +22,7 @@ func (n *Nurse) Attend(p *Patient, location string) (EpisodeRecord, error) {
 		return EpisodeRecord{}, ErrNilPatient
 	}
 	if p.State() != PatientStateAsleep {
-		return EpisodeRecord{}, fmt.Errorf("nurse %s, patient %s: %w", n.Name(), p.Name(), ErrPatientNotAsleep)
+		return EpisodeRecord{}, ErrPatientNotAsleep
 	}
 	p.setAssignedDoctor(n)
 	n.stabilized = append(n.stabilized, p)

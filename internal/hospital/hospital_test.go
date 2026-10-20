@@ -3,15 +3,15 @@ package hospital
 import (
 	"errors"
 	"testing"
+
+	"ClinicaCoste/internal/hospital/clock"
 )
 
 // --- helpers ---
 
-// newTestHospital crea un hospital con una sala por cada capacidad indicada
-// (numeradas 101, 102, ...).
 func newTestHospital(t *testing.T, capacities ...int) *Hospital {
 	t.Helper()
-	h, err := NewHospital("Hospital de los Costeños con Narcolepsia")
+	h, err := NewHospital("Hospital de los Costeños con Narcolepsia", clock.RealClock{})
 	if err != nil {
 		t.Fatalf("NewHospital: %v", err)
 	}
@@ -36,7 +36,7 @@ func admit(t *testing.T, h *Hospital, name string, level NarcolepsyLevel) *Patie
 
 func TestNewHospital_NameRequired(t *testing.T) {
 	for _, name := range []string{"", "   "} {
-		if _, err := NewHospital(name); !errors.Is(err, ErrHospitalNameRequired) {
+		if _, err := NewHospital(name, clock.RealClock{}); !errors.Is(err, ErrHospitalNameRequired) {
 			t.Errorf("name %q: got %v", name, err)
 		}
 	}
@@ -92,7 +92,7 @@ func TestAddRoom(t *testing.T) {
 	}
 }
 
-// --- AssignRoom (sección 5.3 del enunciado) ---
+// --- AssignRoom ---
 
 func TestAssignRoom_WithFreeRoom(t *testing.T) {
 	h := newTestHospital(t, 1, 1)
@@ -200,7 +200,7 @@ func TestReportSleepAttack(t *testing.T) {
 	}
 }
 
-// --- PatientsInHallway (consulta 5.1) ---
+// --- PatientsInHallway ---
 
 func TestPatientsInHallway(t *testing.T) {
 	h := newTestHospital(t, 1)
@@ -248,22 +248,15 @@ func TestAssignNextWaiting_ServesSevereBeforeEarlierMild(t *testing.T) {
 	mild := admit(t, h, "Mild", NarcolepsyLevelMild)
 	severe := admit(t, h, "Severe", NarcolepsyLevelSevere)
 
-	_, _ = h.ReportSleepAttack(holder, "a") // toma la única sala
-	_, _ = h.ReportSleepAttack(mild, "b")   // espera (admitido antes que severe)
-	_, _ = h.ReportSleepAttack(severe, "c") // espera
+	_, _ = h.ReportSleepAttack(holder, "a")
+	_, _ = h.ReportSleepAttack(mild, "b")
+	_, _ = h.ReportSleepAttack(severe, "c")
 
-	if _, _, err := h.AssignNextWaiting(); !errors.Is(err, ErrNoRoomAvailable) {
-		t.Fatalf("no free room yet: got %v", err)
-	}
-
+	// Al despertar a Holder, el backend debe auto-asignar la cama al paciente grave
 	_ = h.WakePatient(holder)
 
-	next, room, err := h.AssignNextWaiting()
-	if err != nil {
-		t.Fatalf("AssignNextWaiting: %v", err)
-	}
-	if next != severe || room.Number() != 101 {
-		t.Errorf("Severe must go first, got %v in %v", next, room)
+	if severe.AssignedRoom() == nil || severe.AssignedRoom().Number() != 101 {
+		t.Errorf("Severe must go first to room 101, got %v", severe.AssignedRoom())
 	}
 	if !mild.IsAsleepInHallway() {
 		t.Error("Mild must keep waiting")
@@ -279,11 +272,15 @@ func TestAssignNextWaiting_FIFOAmongEquals(t *testing.T) {
 	_, _ = h.ReportSleepAttack(holder, "a")
 	_, _ = h.ReportSleepAttack(second, "b")
 	_, _ = h.ReportSleepAttack(first, "c")
+
+	// Al despertar a Holder, la cama se la lleva "First" (el primero en llegar de los moderados)
 	_ = h.WakePatient(holder)
 
-	next, _, err := h.AssignNextWaiting()
-	if err != nil || next != first {
-		t.Errorf("equal priority: admission order wins, got %v (%v)", next, err)
+	if first.AssignedRoom() == nil {
+		t.Error("First should have gotten the room")
+	}
+	if second.AssignedRoom() != nil {
+		t.Error("Second should still be in the hallway")
 	}
 }
 
@@ -298,9 +295,6 @@ func TestAssignNextWaiting_NobodyWaiting(t *testing.T) {
 
 // --- Historial ---
 
-// TestRegisterEpisode prueba RegisterEpisode de forma aislada: duerme al
-// paciente a mano (sin pasar por ReportSleepAttack, que ya registra su propio
-// episodio) para no mezclar los dos episodios en el mismo History().
 func TestRegisterEpisode(t *testing.T) {
 	h := newTestHospital(t, 1)
 	p := admit(t, h, "A", NarcolepsyLevelMild)
@@ -336,7 +330,7 @@ func TestRegisterEpisode(t *testing.T) {
 	}
 }
 
-// --- El escenario de la sección 6, a nivel de dominio ---
+// --- Escenario ---
 
 func TestDemoScenarioFlow(t *testing.T) {
 	h := newTestHospital(t, 1, 1, 1)
@@ -364,16 +358,17 @@ func TestDemoScenarioFlow(t *testing.T) {
 	if err := h.WakePatient(ps[0]); err != nil {
 		t.Fatalf("wake P1: %v", err)
 	}
-	next, room, err := h.AssignNextWaiting()
-	if err != nil || next != ps[3] || room.Number() != 101 {
-		t.Fatalf("P4 should take room 101, got %v %v %v", next, room, err)
+
+	// Al despertar a P1, el backend auto-asigna a P4
+	if ps[3].AssignedRoom() == nil || ps[3].AssignedRoom().Number() != 101 {
+		t.Fatalf("P4 should take room 101, got %v", ps[3].AssignedRoom())
 	}
 	if len(h.PatientsInHallway()) != 0 {
 		t.Error("hallway should be empty")
 	}
 }
 
-// --- Staff / dispatch (Fase 3) ---
+// --- Staff / dispatch ---
 
 func TestReportSleepAttack_RegistersAnEpisodeEvenWithoutStaff(t *testing.T) {
 	h := newTestHospital(t, 1)
@@ -428,10 +423,10 @@ func TestDispatch_RoundRobinsAcrossDifferentAttenderTypes(t *testing.T) {
 	d := NewDoctor("Karen", 38, "Neurology")
 	o := NewOrderly("Camilo", 25)
 	n := NewNurse("Andrea", 30)
-	if err := h.HireDoctor(d); err != nil { // los doctores entran por HireDoctor...
+	if err := h.HireDoctor(d); err != nil {
 		t.Fatalf("HireDoctor: %v", err)
 	}
-	for _, a := range []Attender{o, n} { // ...el resto del staff, por AddAttender
+	for _, a := range []Attender{o, n} {
 		if err := h.AddAttender(a); err != nil {
 			t.Fatalf("AddAttender: %v", err)
 		}

@@ -13,7 +13,7 @@ type SeverityEntry struct {
 }
 
 func (h *Hospital) SevereReport() map[*Patient]int {
-	return h.severeReportOn(h.now())
+	return h.severeReportOn(h.clock.Now())
 }
 
 func (h *Hospital) SevereReportOrdered() []SeverityEntry {

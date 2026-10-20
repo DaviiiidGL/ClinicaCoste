@@ -1,11 +1,11 @@
 package hospital
 
 import (
-	"fmt"
+	"ClinicaCoste/internal/hospital/clock"
+	"container/heap"
 	"slices"
 	"strings"
 	"sync"
-	"time"
 )
 
 type Hospital struct {
@@ -15,25 +15,34 @@ type Hospital struct {
 	nextDisp int
 	patients []*Patient
 	byID     map[string]*Patient
-	rooms    []*Room
 	history  []EpisodeRecord
+	floors   []*Floor
 
-	now func() time.Time
+	clock clock.Clock
 
+	mu        sync.RWMutex
 	subMu     sync.Mutex
 	subs      map[int]chan EpisodeRecord
 	nextSubID int
 }
 
-func NewHospital(name string) (*Hospital, error) {
+type PatientHeap []*Patient
+
+func NewHospital(name string, clk clock.Clock) (*Hospital, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, ErrHospitalNameRequired
 	}
+
+	if clk == nil {
+		clk = clock.RealClock{}
+	}
+
 	return &Hospital{
-		name: name,
-		byID: make(map[string]*Patient),
-		now:  time.Now,
-		subs: make(map[int]chan EpisodeRecord),
+		name:   name,
+		byID:   make(map[string]*Patient),
+		floors: []*Floor{NewFloor(1, "Piso Principal", nil)},
+		clock:  clk,
+		subs:   make(map[int]chan EpisodeRecord),
 	}, nil
 }
 
@@ -43,8 +52,11 @@ func (h *Hospital) AdmitPatient(p *Patient) error {
 	if p == nil {
 		return ErrNilPatient
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if _, exists := h.byID[p.ID()]; exists {
-		return fmt.Errorf("patient %s: %w", p.Name(), ErrPatientAlreadyAdmitted)
+		return ErrPatientAlreadyAdmitted
 	}
 	h.patients = append(h.patients, p)
 	h.byID[p.ID()] = p
@@ -55,9 +67,12 @@ func (h *Hospital) HireDoctor(d *Doctor) error {
 	if d == nil {
 		return ErrNilDoctor
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	for _, existing := range h.doctors {
 		if existing.ID() == d.ID() {
-			return fmt.Errorf("doctor %s: %w", d.Name(), ErrDoctorAlreadyHired)
+			return ErrDoctorAlreadyHired
 		}
 	}
 	h.doctors = append(h.doctors, d)
@@ -69,37 +84,67 @@ func (h *Hospital) AddAttender(a Attender) error {
 	if a == nil {
 		return ErrNilAttender
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	for _, existing := range h.staff {
 		if existing.ID() == a.ID() {
-			return fmt.Errorf("attender %s: %w", a.Name(), ErrAttenderAlreadyRegistered)
+			return ErrAttenderAlreadyRegistered
 		}
 	}
 	h.staff = append(h.staff, a)
 	return nil
 }
 
-func (h *Hospital) Staff() []Attender { return slices.Clone(h.staff) }
+func (h *Hospital) Staff() []Attender {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return slices.Clone(h.staff)
+}
 
 func (h *Hospital) dispatch() (Attender, bool) {
-	if len(h.staff) == 0 {
+	var available []Attender
+	for _, a := range h.staff {
+		if doc, ok := a.(*Doctor); ok {
+			if doc.IsOnShift(h.clock) {
+				available = append(available, doc)
+			}
+		} else {
+			available = append(available, a)
+		}
+	}
+	if len(available) == 0 {
 		return nil, false
 	}
-	a := h.staff[h.nextDisp%len(h.staff)]
+	a := available[h.nextDisp%len(available)]
 	h.nextDisp++
 	return a, true
 }
 
 func (h *Hospital) AddRoom(number, capacity int) (*Room, error) {
-	for _, r := range h.rooms {
-		if r.Number() == number {
-			return nil, fmt.Errorf("room %d: %w", number, ErrRoomAlreadyRegistered)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, floor := range h.floors {
+		for _, r := range floor.Rooms() {
+			if r.Number() == number {
+				return nil, ErrRoomAlreadyRegistered
+			}
 		}
 	}
+
 	room, err := NewRoom(number, capacity)
 	if err != nil {
 		return nil, err
 	}
-	h.rooms = append(h.rooms, room)
+
+	if len(h.floors) == 0 {
+		h.floors = append(h.floors, NewFloor(1, "Piso Principal", nil))
+	}
+
+	if err := h.floors[0].AddRoom(room); err != nil {
+		return nil, err
+	}
+
 	return room, nil
 }
 
@@ -107,19 +152,68 @@ func (h *Hospital) ReportSleepAttack(p *Patient, location string) (*Room, error)
 	if p == nil {
 		return nil, ErrNilPatient
 	}
-	if h.findPatient(p.ID()) == nil {
-		return nil, fmt.Errorf("patient %s: %w", p.Name(), ErrPatientNotFound)
+
+	h.mu.Lock()
+	if _, exists := h.byID[p.ID()]; !exists {
+		h.mu.Unlock()
+		return nil, ErrPatientNotFound
 	}
+	h.mu.Unlock()
+
 	if err := p.SufferSleepAttack(location); err != nil {
 		return nil, err
 	}
-	room, roomErr := h.AssignRoom(p)
 
-	if err := h.attendAndRegister(p, location); err != nil {
-		return room, err
+	h.mu.Lock()
+	room, roomErr := h.assignRoomUnsafe(p)
+
+	var e EpisodeRecord
+	var attendingDoctor Attender
+
+	if attender, ok := h.dispatch(); ok {
+		if ep, err := attender.Attend(p, location); err == nil {
+			attendingDoctor = attender
+			e = ep
+		}
 	}
 
+	if attendingDoctor == nil {
+		e = NewEpisodeRecord(p, nil, location, room)
+		e.timestamp = h.clock.Now()
+	}
+
+	h.history = append(h.history, e)
+	h.publish(e)
+	h.mu.Unlock()
+
 	return room, roomErr
+}
+
+func (h *Hospital) ProcessQueue(attender Attender) error {
+	if attender == nil {
+		return ErrNilAttender
+	}
+
+	h.mu.Lock()
+	waiting := h.patientsInHallwayUnsafe()
+	if len(waiting) == 0 {
+		h.mu.Unlock()
+		return ErrNoPatientWaiting
+	}
+	hp := PatientHeap(waiting)
+	heap.Init(&hp)
+
+	nextPatient := heap.Pop(&hp).(*Patient)
+	if nextPatient.AssignedRoom() == nil {
+		_, _ = h.assignRoomUnsafe(nextPatient)
+	}
+	h.mu.Unlock()
+
+	e, err := attender.Attend(nextPatient, nextPatient.Location())
+	if err != nil {
+		return err
+	}
+	return h.RegisterEpisode(e)
 }
 
 func (h *Hospital) attendAndRegister(p *Patient, location string) error {
@@ -135,62 +229,108 @@ func (h *Hospital) attendAndRegister(p *Patient, location string) error {
 }
 
 func (h *Hospital) AssignRoom(p *Patient) (*Room, error) {
-	if p == nil {
-		return nil, ErrNilPatient
-	}
-	if h.findPatient(p.ID()) == nil {
-		return nil, fmt.Errorf("patient %s: %w", p.Name(), ErrPatientNotFound)
-	}
-	if p.State() != PatientStateAsleep {
-		return nil, fmt.Errorf("patient %s: %w", p.Name(), ErrPatientNotAsleep)
-	}
-	if p.AssignedRoom() != nil {
-		return nil, fmt.Errorf("patient %s: %w", p.Name(), ErrPatientAlreadyInRoom)
-	}
-	for _, room := range h.rooms {
-		if room.IsAvailable() {
-			if err := room.Occupy(p); err != nil {
-				return nil, err
-			}
-			return room, nil
-		}
-	}
-	return nil, fmt.Errorf("patient %s: %w", p.Name(), ErrNoRoomAvailable)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.assignRoomUnsafe(p)
 }
 
 func (h *Hospital) WakePatient(p *Patient) error {
 	if p == nil {
 		return ErrNilPatient
 	}
-	if h.findPatient(p.ID()) == nil {
-		return fmt.Errorf("patient %s: %w", p.Name(), ErrPatientNotFound)
+
+	h.mu.Lock()
+	if _, exists := h.byID[p.ID()]; !exists {
+		h.mu.Unlock()
+		return ErrPatientNotFound
 	}
+
 	if err := p.WakeUp(); err != nil {
+		h.mu.Unlock()
 		return err
 	}
+
 	if room := p.AssignedRoom(); room != nil {
-		return room.Release(p)
+		if err := room.Release(p); err != nil {
+			h.mu.Unlock()
+			return err
+		}
 	}
+
+	_, _, _ = h.AssignNextWaitingUnsafe()
+
+	h.mu.Unlock()
+
 	return nil
 }
 
+func (h *Hospital) Clock() clock.Clock {
+	return h.clock
+}
+
+func (h *Hospital) assignRoomUnsafe(p *Patient) (*Room, error) {
+	if p == nil {
+		return nil, ErrNilPatient
+	}
+	if _, exists := h.byID[p.ID()]; !exists {
+		return nil, ErrPatientNotFound
+	}
+	if p.State() != PatientStateAsleep {
+		return nil, ErrPatientNotAsleep
+	}
+	if p.AssignedRoom() != nil {
+		return nil, ErrPatientAlreadyInRoom
+	}
+
+	for _, floor := range h.floors {
+		for _, room := range floor.Rooms() {
+			if room.IsAvailable() {
+				if err := room.Occupy(p); err != nil {
+					return nil, err
+				}
+				return room, nil
+			}
+		}
+	}
+	return nil, ErrNoRoomAvailable
+}
+
 func (h *Hospital) AssignNextWaiting() (*Patient, *Room, error) {
-	waiting := h.PatientsInHallway() // copia: se puede reordenar sin tocar h.patients
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.assignNextWaitingUnsafe()
+}
+
+func (h *Hospital) assignNextWaitingUnsafe() (*Patient, *Room, error) {
+	waiting := h.patientsInHallwayUnsafe()
 	if len(waiting) == 0 {
 		return nil, nil, ErrNoPatientWaiting
 	}
-	slices.SortStableFunc(waiting, func(a, b *Patient) int {
-		switch {
-		case a.HasHigherPriority(b):
-			return -1
-		case b.HasHigherPriority(a):
-			return 1
-		default:
-			return 0
-		}
-	})
-	next := waiting[0]
-	room, err := h.AssignRoom(next)
+
+	hp := PatientHeap(waiting)
+	heap.Init(&hp)
+
+	next := heap.Pop(&hp).(*Patient)
+
+	room, err := h.assignRoomUnsafe(next)
+	if err != nil {
+		return nil, nil, err
+	}
+	return next, room, nil
+}
+
+func (h *Hospital) AssignNextWaitingUnsafe() (*Patient, *Room, error) {
+	waiting := h.patientsInHallwayUnsafe()
+	if len(waiting) == 0 {
+		return nil, nil, ErrNoPatientWaiting
+	}
+
+	hp := PatientHeap(waiting)
+	heap.Init(&hp)
+
+	next := heap.Pop(&hp).(*Patient)
+
+	room, err := h.assignRoomUnsafe(next)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -201,8 +341,12 @@ func (h *Hospital) RegisterEpisode(e EpisodeRecord) error {
 	if e.Patient() == nil {
 		return ErrNilPatient
 	}
-	if h.findPatient(e.Patient().ID()) == nil {
-		return fmt.Errorf("patient %s: %w", e.Patient().Name(), ErrPatientNotFound)
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if _, exists := h.byID[e.Patient().ID()]; !exists {
+		return ErrPatientNotFound
 	}
 	h.history = append(h.history, e)
 	h.publish(e)
@@ -210,7 +354,14 @@ func (h *Hospital) RegisterEpisode(e EpisodeRecord) error {
 }
 
 func (h *Hospital) PatientsInHallway() []*Patient {
-	var out []*Patient
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.patientsInHallwayUnsafe()
+}
+
+func (h *Hospital) patientsInHallwayUnsafe() []*Patient {
+	out := make([]*Patient, 0, len(h.patients))
+
 	for _, p := range h.patients {
 		if p.IsAsleepInHallway() {
 			out = append(out, p)
@@ -219,11 +370,103 @@ func (h *Hospital) PatientsInHallway() []*Patient {
 	return out
 }
 
-func (h *Hospital) Patients() []*Patient     { return slices.Clone(h.patients) }
-func (h *Hospital) Doctors() []*Doctor       { return slices.Clone(h.doctors) }
-func (h *Hospital) Rooms() []*Room           { return slices.Clone(h.rooms) }
-func (h *Hospital) History() []EpisodeRecord { return slices.Clone(h.history) }
+func (h *Hospital) Rooms() []*Room {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var allRooms []*Room
+	for _, f := range h.floors {
+		allRooms = append(allRooms, f.Rooms()...)
+	}
+	return allRooms
+}
+
+func (h *Hospital) FloorSnapshot(floorNumber int) []PatientView {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var targetFloor *Floor
+	for _, f := range h.floors {
+		if f.Number() == floorNumber {
+			targetFloor = f
+			break
+		}
+	}
+	if targetFloor == nil {
+		return nil
+	}
+
+	roomNumbers := make(map[int]bool)
+	for _, r := range targetFloor.Rooms() {
+		roomNumbers[r.Number()] = true
+	}
+
+	var snapshot []PatientView
+	for _, p := range h.patients {
+		roomNum := 0
+		assignedToThisFloor := false
+
+		if p.AssignedRoom() != nil {
+			roomNum = p.AssignedRoom().Number()
+			if roomNumbers[roomNum] {
+				assignedToThisFloor = true
+			}
+		}
+		if assignedToThisFloor {
+			snapshot = append(snapshot, PatientView{
+				ID:           p.ID(),
+				ShortID:      shortID(p.ID()),
+				Name:         p.Name(),
+				State:        p.State().String(),
+				Location:     p.Location(),
+				AssignedRoom: roomNum,
+				IsCrisis:     p.IsAsleepInHallway(),
+			})
+		}
+	}
+	return snapshot
+}
+
+func (h *Hospital) Patients() []*Patient {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return slices.Clone(h.patients)
+}
+
+func (h *Hospital) Doctors() []*Doctor {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return slices.Clone(h.doctors)
+}
+
+func (h *Hospital) History() []EpisodeRecord {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return slices.Clone(h.history)
+}
 
 func (h *Hospital) findPatient(id string) *Patient {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	return h.byID[id]
+}
+
+func (h *PatientHeap) Len() int { return len(*h) }
+
+func (h *PatientHeap) Less(i, j int) bool {
+	return (*h)[i].HasHigherPriority((*h)[j])
+}
+
+func (h *PatientHeap) Swap(i, j int) {
+	(*h)[i], (*h)[j] = (*h)[j], (*h)[i]
+}
+
+func (h *PatientHeap) Push(x any) {
+	*h = append(*h, x.(*Patient))
+}
+
+func (h *PatientHeap) Pop() any {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[0 : n-1]
+	return item
 }

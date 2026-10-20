@@ -1,7 +1,5 @@
 package hospital
 
-import "fmt"
-
 type Orderly struct {
 	Person
 
@@ -25,9 +23,9 @@ func (o *Orderly) Attend(p *Patient, location string) (EpisodeRecord, error) {
 		return EpisodeRecord{}, ErrNilPatient
 	}
 	if p.State() != PatientStateAsleep {
-		return EpisodeRecord{}, fmt.Errorf("orderly %s, patient %s: %w", o.Name(), p.Name(), ErrPatientNotAsleep)
+		return EpisodeRecord{}, ErrPatientNotAsleep
 	}
-	p.setAssignedDoctor(o) // "quién lo está atendiendo ahora", no implica que sea médico
+	p.setAssignedDoctor(o)
 	o.patientsMoved = append(o.patientsMoved, p)
 	return NewEpisodeRecord(p, o, location, p.AssignedRoom()), nil
 }

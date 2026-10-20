@@ -1,6 +1,10 @@
 package hospital
 
-import "fmt"
+import (
+	"fmt"
+	"math/rand/v2"
+	"time"
+)
 
 type Patient struct {
 	Person
@@ -9,6 +13,7 @@ type Patient struct {
 	currentLocation string
 	assignedRoom    *Room
 	assignedDoctor  Attender
+	rng             *rand.Rand
 }
 
 func NewPatient(name string, age int, level NarcolepsyLevel) *Patient {
@@ -16,6 +21,7 @@ func NewPatient(name string, age int, level NarcolepsyLevel) *Patient {
 		Person: NewPerson(name, age),
 		level:  level,
 		state:  PatientStateAwake,
+		rng:    rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 	}
 }
 
@@ -47,7 +53,6 @@ func (p *Patient) IsAsleepInBed() bool {
 	return p.state == PatientStateAsleep && p.assignedRoom != nil
 }
 
-// Priority: 2>1>0 where 2 is maximum urgency
 func (p *Patient) Priority() (urgency, severity int) {
 	switch {
 	case p.IsAsleepInHallway():
@@ -60,7 +65,6 @@ func (p *Patient) Priority() (urgency, severity int) {
 	return urgency, int(p.level)
 }
 
-// Comparing
 func (p *Patient) HasHigherPriority(other *Patient) bool {
 	u1, s1 := p.Priority()
 	u2, s2 := other.Priority()
@@ -70,7 +74,6 @@ func (p *Patient) HasHigherPriority(other *Patient) bool {
 	return s1 > s2
 }
 
-// Patient asleep at location
 func (p *Patient) SufferSleepAttack(location string) error {
 	if p.state == PatientStateAsleep {
 		return fmt.Errorf("patient %s %w", p.ID(), ErrPatientAlreadyAsleep)
@@ -84,7 +87,6 @@ func (p *Patient) SufferSleepAttack(location string) error {
 	return nil
 }
 
-// Wake up Patient
 func (p *Patient) WakeUp() error {
 	if p.state == PatientStateAwake {
 		return fmt.Errorf("patient %s: %w", p.ID(), ErrPatientAlreadyAwake)
@@ -92,6 +94,19 @@ func (p *Patient) WakeUp() error {
 	p.state = PatientStateAwake
 	p.currentLocation = ""
 	return nil
+}
+func (p *Patient) nextAttackDelay() time.Duration {
+	base := 5 * time.Second
+	switch p.level {
+	case NarcolepsyLevelSevere:
+		base = 2 * time.Second
+	case NarcolepsyLevelMild:
+		base = 10 * time.Second
+	default:
+		base = 5 * time.Second
+	}
+	n := p.rng.IntN(3)
+	return base + time.Duration(n)*time.Second
 }
 
 func (p *Patient) setAssignedRoom(r *Room)      { p.assignedRoom = r }

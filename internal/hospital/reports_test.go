@@ -3,11 +3,10 @@ package hospital
 import (
 	"testing"
 	"time"
+
+	"ClinicaCoste/internal/hospital/clock"
 )
 
-// registerAt registra un episodio con una marca de tiempo concreta. Los
-// campos de EpisodeRecord son privados, pero estos tests viven en el mismo
-// paquete, así que pueden construir el literal para controlar la fecha.
 func registerAt(t *testing.T, h *Hospital, p *Patient, at time.Time) {
 	t.Helper()
 	e := EpisodeRecord{id: "e-" + at.Format(time.RFC3339Nano), timestamp: at, patient: p, location: "x"}
@@ -17,9 +16,9 @@ func registerAt(t *testing.T, h *Hospital, p *Patient, at time.Time) {
 }
 
 func TestSevereReport(t *testing.T) {
-	h := newTestHospital(t)
 	noon := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
-	h.now = func() time.Time { return noon }
+	clk := clock.NewSimulatedClock(noon, 1.0)
+	h, _ := NewHospital("Hospital Test", clk)
 
 	severeBusy := admit(t, h, "Yeimy", NarcolepsyLevelSevere)
 	severeQuiet := admit(t, h, "Wilfrido", NarcolepsyLevelSevere)
@@ -28,8 +27,8 @@ func TestSevereReport(t *testing.T) {
 
 	registerAt(t, h, severeBusy, noon.Add(-1*time.Hour))
 	registerAt(t, h, severeBusy, noon.Add(-3*time.Hour))
-	registerAt(t, h, severeBusy, noon.Add(-30*time.Hour)) // ayer: no cuenta
-	registerAt(t, h, mild, noon.Add(-1*time.Hour))        // no es Severe: no aparece
+	registerAt(t, h, severeBusy, noon.Add(-30*time.Hour))
+	registerAt(t, h, mild, noon.Add(-1*time.Hour))
 	registerAt(t, h, moderate, noon.Add(-2*time.Hour))
 
 	report := h.SevereReport()
@@ -49,7 +48,7 @@ func TestSevereReport(t *testing.T) {
 }
 
 func TestSevereReport_NoSeverePatientsReturnsEmptyNonNilMap(t *testing.T) {
-	h := newTestHospital(t)
+	h, _ := NewHospital("Hospital Test", clock.RealClock{})
 	admit(t, h, "Mild", NarcolepsyLevelMild)
 
 	report := h.SevereReport()
@@ -63,34 +62,41 @@ func TestSevereReport_NoSeverePatientsReturnsEmptyNonNilMap(t *testing.T) {
 }
 
 func TestSevereReport_OnlyCountsTheDayOfTheHospitalClock(t *testing.T) {
-	h := newTestHospital(t)
-	p := admit(t, h, "Yeimy", NarcolepsyLevelSevere)
 	day1 := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	day2 := day1.Add(24 * time.Hour)
 
-	registerAt(t, h, p, day1)
-	registerAt(t, h, p, day2)
-	registerAt(t, h, p, day2.Add(time.Hour))
+	// Hospital para el día 1
+	hDay1, _ := NewHospital("H1", clock.NewSimulatedClock(day1, 1.0))
+	p1 := admit(t, hDay1, "Yeimy", NarcolepsyLevelSevere)
+	registerAt(t, hDay1, p1, day1)
+	registerAt(t, hDay1, p1, day2) // este es de day2, no debe contar en day1
 
-	h.now = func() time.Time { return day1 }
-	if got := h.SevereReport()[p]; got != 1 {
+	if got := hDay1.SevereReport()[p1]; got != 1 {
 		t.Errorf("day 1: want 1, got %d", got)
 	}
-	h.now = func() time.Time { return day2 }
-	if got := h.SevereReport()[p]; got != 2 {
+
+	// Hospital para el día 2
+	hDay2, _ := NewHospital("H2", clock.NewSimulatedClock(day2, 1.0))
+	p2 := admit(t, hDay2, "Yeimy", NarcolepsyLevelSevere)
+	registerAt(t, hDay2, p2, day1)
+	registerAt(t, hDay2, p2, day2)
+	registerAt(t, hDay2, p2, day2.Add(time.Hour))
+
+	if got := hDay2.SevereReport()[p2]; got != 2 {
 		t.Errorf("day 2: want 2, got %d", got)
 	}
 }
 
 func TestSevereReport_DayBoundary(t *testing.T) {
-	h := newTestHospital(t)
+	day10 := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	clk := clock.NewSimulatedClock(day10, 1.0)
+	h, _ := NewHospital("Hospital Test", clk)
 	p := admit(t, h, "Yeimy", NarcolepsyLevelSevere)
-	h.now = func() time.Time { return time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC) }
 
-	registerAt(t, h, p, time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC))    // primer instante del día
-	registerAt(t, h, p, time.Date(2026, 10, 10, 23, 59, 59, 0, time.UTC)) // último instante
-	registerAt(t, h, p, time.Date(2026, 10, 9, 23, 59, 59, 0, time.UTC))  // ayer
-	registerAt(t, h, p, time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC))    // mañana
+	registerAt(t, h, p, time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC))
+	registerAt(t, h, p, time.Date(2026, 10, 10, 23, 59, 59, 0, time.UTC))
+	registerAt(t, h, p, time.Date(2026, 10, 9, 23, 59, 59, 0, time.UTC))
+	registerAt(t, h, p, time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC))
 
 	if got := h.SevereReport()[p]; got != 2 {
 		t.Errorf("want 2 (both edges of today), got %d", got)
@@ -98,9 +104,9 @@ func TestSevereReport_DayBoundary(t *testing.T) {
 }
 
 func TestSevereReportOrdered(t *testing.T) {
-	h := newTestHospital(t)
 	noon := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
-	h.now = func() time.Time { return noon }
+	clk := clock.NewSimulatedClock(noon, 1.0)
+	h, _ := NewHospital("Hospital Test", clk)
 
 	zoe := admit(t, h, "Zoe", NarcolepsyLevelSevere)
 	ana := admit(t, h, "Ana", NarcolepsyLevelSevere)
@@ -113,7 +119,7 @@ func TestSevereReportOrdered(t *testing.T) {
 
 	got := h.SevereReportOrdered()
 
-	want := []*Patient{top, ana, zoe} // más episodios primero; empate -> por nombre
+	want := []*Patient{top, ana, zoe}
 	if len(got) != 3 {
 		t.Fatalf("want 3 entries, got %d", len(got))
 	}
@@ -129,12 +135,11 @@ func TestSevereReportOrdered(t *testing.T) {
 
 func TestSameDay_UsesTheZoneOfTheReference(t *testing.T) {
 	bogota := time.FixedZone("COT", -5*3600)
-	ref := time.Date(2026, 10, 10, 20, 0, 0, 0, bogota) // 01:00 UTC del día 11
+	ref := time.Date(2026, 10, 10, 20, 0, 0, 0, bogota)
 	sameLocalDay := time.Date(2026, 10, 10, 8, 0, 0, 0, bogota)
 	if !sameDay(sameLocalDay, ref) {
 		t.Error("same calendar day in the reference zone must match")
 	}
-	// Mismo instante visto en UTC ya es día 11, pero la referencia manda
 	if !sameDay(ref.UTC(), ref) {
 		t.Error("the same instant must always be the same day")
 	}

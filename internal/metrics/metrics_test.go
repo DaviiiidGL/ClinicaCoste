@@ -1,6 +1,7 @@
 package metrics_test
 
 import (
+	"ClinicaCoste/internal/hospital/clock"
 	"errors"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 
 func newHospital(t *testing.T, capacities ...int) *hospital.Hospital {
 	t.Helper()
-	h, err := hospital.NewHospital("Hospital de los Costeños con Narcolepsia")
+	h, err := hospital.NewHospital("Hospital de los Costeños con Narcolepsia", clock.RealClock{})
 	if err != nil {
 		t.Fatalf("NewHospital: %v", err)
 	}
